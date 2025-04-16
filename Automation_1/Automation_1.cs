@@ -49,26 +49,113 @@ DATE		VERSION		AUTHOR			COMMENTS
 ****************************************************************************
 */
 
-namespace Automation_1
+namespace ParameterSetter
 {
-	using System;
-	using System.Collections.Generic;
-	using System.Globalization;
-	using System.Text;
-	using Skyline.DataMiner.Automation;
-	
-	/// <summary>
-	/// Represents a DataMiner Automation script.
-	/// </summary>
-	public class Script
-	{
-		/// <summary>
-		/// The script entry point.
-		/// </summary>
-		/// <param name="engine">Link with SLAutomation process.</param>
-		public void Run(IEngine engine)
-		{
-	
-		}
-	}
+    using System;
+    using Skyline.DataMiner.Automation;
+    using Skyline.DataMiner.Core.DataMinerSystem.Automation;
+    using Skyline.DataMiner.Core.DataMinerSystem.Common;
+    using Skyline.DataMiner.Utils.InteractiveAutomationScript;
+
+    /// <summary>
+    /// Represents a DataMiner Automation script.
+    /// </summary>
+    public class Script
+    {
+        private InteractiveController app;
+
+        /// <summary>
+        /// The Script entry point.
+        /// IEngine.ShowUI();.
+        /// </summary>
+        /// <param name="engine">Link with SLAutomation process.</param>
+        public void Run(IEngine engine)
+        {
+            try
+            {
+                app = new InteractiveController(engine);
+
+                engine.SetFlag(RunTimeFlags.NoKeyCaching);
+                engine.Timeout = TimeSpan.FromHours(10);
+
+                RunSafe(engine);
+            }
+            catch (ScriptAbortException)
+            {
+                throw;
+            }
+            catch (ScriptForceAbortException)
+            {
+                throw;
+            }
+            catch (ScriptTimeoutException)
+            {
+                throw;
+            }
+            catch (InteractiveUserDetachedException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                engine.Log($"Run|Something went wrong: {ex}");
+                ShowExceptionDialog(engine, ex);
+            }
+        }
+
+        private void RunSafe(IEngine engine)
+        {
+            var model = new ParameterSetterModel(engine.GetDms());
+            var elementSelectionView = new ElementSelectionView(engine);
+            var elementSelectionPresenter = new ElementSelectionPresenter(model, elementSelectionView);
+            var parameterSelectionView = new ParameterSelectionView(engine);
+            var parameterSelectionPresenter = new ParameterSelectionPresenter(model, parameterSelectionView);
+            var parameterSetterView = new ParameterSetterView(engine);
+            var parameterSetterPresenter = new ParameterSetterPresenter(model, parameterSetterView);
+
+            elementSelectionPresenter.CancelButtonPressed += (sender, e) =>
+            {
+                app.Stop();
+            };
+            elementSelectionPresenter.ContinueButtonPressed += (sender, e) =>
+            {
+                parameterSelectionPresenter.LoadFromModel();
+                app.ShowDialog(parameterSelectionView);
+            };
+
+            parameterSelectionPresenter.BackButtonPressed += (sender, e) =>
+            {
+                elementSelectionPresenter.LoadFromModel();
+                app.ShowDialog(elementSelectionView);
+            };
+            parameterSelectionPresenter.ContinueButtonPressed += (sender, e) =>
+            {
+                parameterSetterPresenter.LoadFromModel();
+                app.ShowDialog(parameterSetterView);
+            };
+
+            parameterSetterPresenter.BackButtonPressed += (sender, e) =>
+            {
+                parameterSelectionPresenter.LoadFromModel();
+                app.ShowDialog(parameterSelectionView);
+            };
+            parameterSetterPresenter.ExitButtonPressed += (sender, e) =>
+            {
+                app.Stop();
+            };
+
+            elementSelectionPresenter.LoadFromModel();
+            app.Run(elementSelectionView);
+        }
+
+        private void ShowExceptionDialog(IEngine engine, Exception exception)
+        {
+            ExceptionDialog exceptionDialog = new ExceptionDialog(engine, exception);
+            exceptionDialog.OkButton.Pressed += (sender, args) => engine.ExitFail("Something went wrong.");
+            if (app.IsRunning)
+                app.ShowDialog(exceptionDialog);
+            else
+                app.Run(exceptionDialog);
+        }
+    }
 }
